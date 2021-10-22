@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "cluster.h": "c",
+        "server.h": "c",
+        "*.tcc": "c",
+        "fstream": "c",
+        "istream": "c",
+        "ostream": "c"
+    }
+}
