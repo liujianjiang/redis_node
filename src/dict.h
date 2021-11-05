@@ -67,7 +67,7 @@ typedef struct dictType {
 /* This is our hash table structure. Every dictionary has two of this as we
  * implement incremental rehashing, for the old to the new table. */
 typedef struct dictht {
-    dictEntry **table;//指针数组用于存储键值对
+    dictEntry **table;//指针数组用于存储键值对 二维数组
     unsigned long size;//table数组大小
     unsigned long sizemask;//索引值=hash值与数组总容量取余以后的值
     unsigned long used;//table数组已存在元素个数，包含next单链表的数据

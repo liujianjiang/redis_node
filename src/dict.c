@@ -33,6 +33,67 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+1、Redis 中的 dict 数据结构，采用「链式哈希」的方式存储，当哈希冲突严重时，会开辟一个新的哈希表，翻倍扩容，并采用「渐进式 rehash」的方式迁移数据
+
+2、所谓「渐进式 rehash」是指，把很大块迁移数据的开销，平摊到多次小的操作中，目的是降低主线程的性能影响
+
+3、Redis 中凡是需要 O(1) 时间获取 k-v 数据的场景，都使用了 dict 这个数据结构，也就是说 dict 是 Redis 中重中之重的「底层数据结构」
+
+4、dict 封装好了友好的「增删改查」API，并在适当时机「自动扩容、缩容」，这给上层数据类型（Hash/Set/Sorted Set）、全局哈希表的实现提供了非常大的便利
+
+5、例如，Redis 中每个 DB 存放数据的「全局哈希表、过期key」都用到了 dict：
+
+// server.h
+typedef struct redisDb {
+    dict *dict; // 全局哈希表，数据键值对存在这
+    dict *expires; // 过期 key + 过期时间 存在这
+    ...
+}
+
+6、「全局哈希表」在触发渐进式 rehash 的情况有 2 个：
+
+- 增删改查哈希表时：每次迁移 1 个哈希桶（文章提到的 dict.c 中的 _dictRehashStep 函数）
+- 定时 rehash：如果 dict 一直没有操作，无法渐进式迁移数据，那主线程会默认每间隔 100ms 执行一次迁移操作。这里一次会以 100 个桶为基本单位迁移数据，并限制如果一次操作耗时超时 1ms 就结束本次任务，待下次再次触发迁移（文章没提到这个，详见 dict.c 的 dictRehashMilliseconds 函数）
+
+（注意：定时 rehash 只会迁移全局哈希表中的数据，不会定时迁移 Hash/Set/Sorted Set 下的哈希表的数据，这些哈希表只会在操作数据时做实时的渐进式 rehash）
+
+7、dict 在负载因子超过 1 时（used: bucket size >= 1），会触发 rehash。但如果 Redis 正在 RDB 或 AOF rewrite，为避免父进程大量写时复制，会暂时关闭触发 rehash。但这里有个例外，如果负载因子超过了 5（哈希冲突已非常严重），依旧会强制做 rehash（重点）
+
+8、dict 在 rehash 期间，查询旧哈希表找不到结果，还需要在新哈希表查询一次
+
+课后题：Hash 函数会影响 Hash 表的查询效率及哈希冲突情况，那么，你能从 Redis 的源码中，找到 Hash 表使用的是哪一种 Hash 函数吗？
+
+找到 dict.c 的 dictFind 函数，可以看到查询一个 key 在哈希表的位置时，调用了 dictHashKey 计算 key 的哈希值：
+
+dictEntry *dictFind(dict *d, const void *key) {
+    // 计算 key 的哈希值
+    h = dictHashKey(d, key);
+    ...
+}
+
+继续跟代码可以看到 dictHashKey 调用了 struct dict 下 dictType 的 hashFunction 函数：
+
+// dict.h
+dictHashKey(d, key) (d)->type->hashFunction(key)
+
+而这个 hashFunction 是在初始化一个 dict 时，才会指定使用哪个哈希函数的。
+
+当 Redis Server 在启动时会创建「全局哈希表」：
+
+// 初始化 db 下的全局哈希表
+for (j = 0; j < server.dbnum; j++) {
+    // dbDictType 中指定了哈希函数
+    server.db[j].dict = dictCreate(&dbDictType,NULL);
+    ...
+}
+
+这个 dbDictType struct 指定了具体的哈希函数，跟代码进去能看到，使用了 SipHash 算法，具体实现逻辑在 siphash.c。
+
+（SipHash 哈希算法是在 Redis 4.0 才开始使用的，3.0-4.0 使用的是 MurmurHash2 哈希算法，3.0 之前是 DJBX33A 哈希算法）
+
+*/
+
 #include "fmacros.h"
 
 #include <stdio.h>
@@ -948,18 +1009,21 @@ unsigned long dictScan(dict *d,
 /* ------------------------- private functions ------------------------------ */
 
 /* Expand the hash table if needed */
+//检查是否需要触发hash
 static int _dictExpandIfNeeded(dict *d)
 {
     /* Incremental rehashing already in progress. Return. */
     if (dictIsRehashing(d)) return DICT_OK;
 
     /* If the hash table is empty expand it to the initial size. */
-    if (d->ht[0].size == 0) return dictExpand(d, DICT_HT_INITIAL_SIZE);
+    if (d->ht[0].size == 0) return dictExpand(d, DICT_HT_INITIAL_SIZE);//如果hash表为空，将hash扩展为初始大小
 
     /* If we reached the 1:1 ratio, and we are allowed to resize the hash
      * table (global setting) or we should avoid it but the ratio between
      * elements/buckets is over the "safe" threshold, we resize doubling
      * the number of buckets. */
+    //如果Hash表承载的元素个数超过其当前大小，并且可以进行扩容，或者Hash表承载的元素个数已是当前大小的5倍
+    //dict_can_resize
     if (d->ht[0].used >= d->ht[0].size &&
         (dict_can_resize ||
          d->ht[0].used/d->ht[0].size > dict_force_resize_ratio))
@@ -1020,11 +1084,11 @@ void dictEmpty(dict *d, void(callback)(void*)) {
     d->rehashidx = -1;
     d->iterators = 0;
 }
-//开启resize
+//设置启用hash表refash
 void dictEnableResize(void) {
     dict_can_resize = 1;
 }
-//福安比resize
+//设置禁止hash表refash
 void dictDisableResize(void) {
     dict_can_resize = 0;
 }

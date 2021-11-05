@@ -776,6 +776,7 @@ int incrementallyRehash(int dbid) {
  * memory pages are copied). The goal of this function is to update the ability
  * for dict.c to resize the hash tables accordingly to the fact we have o not
  * running childs. */
+//updateDictResizePolicy 函数是用来启用或禁用 rehash 扩容功能的，这个函数调用 dictEnableResize 函数启用扩容功能的条件是：当前没有 RDB 子进程，并且也没有 AOF 子进程
 void updateDictResizePolicy(void) {
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1)
         dictEnableResize();

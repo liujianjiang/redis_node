@@ -30,6 +30,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+
+
 #ifndef __SDS_H
 #define __SDS_H
 
@@ -57,6 +59,8 @@ struct __attribute__ ((__packed__)) sdshdr5 {
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */ //低三位存储类型，高5位存储长度 最大长度2^5-1=31
     char buf[];
 };
+
+//其实这里，__attribute__ ((__packed__))的作用就是告诉编译器，在编译 sdshdr8 结构时，不要使用字节对齐的方式，而是采用紧凑的方式分配内存。这是因为在默认情况下，编译器会按照 8 字节对齐的方式，给变量分配内存。也就是说，即使一个变量的大小不到 8 个字节，编译器也会给它分配 8 个字节。
 struct __attribute__ ((__packed__)) sdshdr8 {
     uint8_t len; /* used */ //字符数组现有长度
     uint8_t alloc; /* excluding the header and null terminator */ //字符数组已分配空间，不包括结构体和\0结束字符
