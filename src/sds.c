@@ -89,8 +89,8 @@ static inline char sdsReqType(size_t string_size) {
  * \0 characters in the middle, as the length is stored in the sds header. */
 //字符串创建
 sds sdsnewlen(const void *init, size_t initlen) {
-    void *sh;
-    sds s;
+    void *sh;//指向SDS结构体的指针
+    sds s;//sds类型变量，即char*字符串数组
     char type = sdsReqType(initlen);//根据字符串长度选择不同的类型
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
@@ -99,7 +99,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
     unsigned char *fp; /* flags pointer. */
 
     assert(hdrlen+initlen+1 > initlen); /* Catch size_t overflow */
-    sh = s_malloc(hdrlen+initlen+1);//+1是为了结束符\0
+    sh = s_malloc(hdrlen+initlen+1);//新建SDS结构，并分配内存空间
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
@@ -142,7 +142,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
         }
     }
     if (initlen && init)
-        memcpy(s, init, initlen);
+        memcpy(s, init, initlen);//将要传入的字符串拷贝给sds变量s
     s[initlen] = '\0';//添加尾部的字符串结束符\0
     return s;
 }
@@ -405,6 +405,10 @@ sds sdsgrowzero(sds s, size_t len) {
  *
  * After the call, the passed sds string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
+//字符串追加操作
+//s 目标字符串
+//t 源字符串
+//追加的字符串长度
 sds sdscatlen(sds s, const void *t, size_t len) {
     size_t curlen = sdslen(s);
 
