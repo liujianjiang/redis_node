@@ -39,8 +39,10 @@
 /* ===================== Creation and parsing of objects ==================== */
 
 robj *createObject(int type, void *ptr) {
-    robj *o = zmalloc(sizeof(*o));
+    robj *o = zmalloc(sizeof(*o));////给redisObject结构体分配空间
+    ////设置redisObject的类型
     o->type = type;
+    //设置redisObject的编码类型，此处是OBJ_ENCODING_RAW，表示常规的SDS
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
@@ -82,7 +84,10 @@ robj *createRawStringObject(const char *ptr, size_t len) {
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
+
+    //redisObject 结构体的大小、SDS 结构头 sdshdr8 的大小和字符串大小的总和
     robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+    //创建 SDS 结构的指针 sh，并把 sh 指向这块连续空间中 SDS 结构头所在的位置，下面的代码显示了这步操作。其中，o 是 redisObject 结构体的变量，o+1 表示将内存地址从变量 o 开始移动一段距离，而移动的距离等于 redisObject 这个结构体的大小。
     struct sdshdr8 *sh = (void*)(o+1);
 
     o->type = OBJ_STRING;

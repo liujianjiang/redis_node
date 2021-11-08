@@ -128,6 +128,70 @@ volatile unsigned long lru_clock; /* Server global current LRU time. */
  *    Note that commands that may trigger a DEL as a side effect (like SET)
  *    are not fast commands.
  */
+/*
+1、要想理解 Redis 数据类型的设计，必须要先了解 redisObject。
+
+Redis 的 key 是 String 类型，但 value 可以是很多类型（String/List/Hash/Set/ZSet等），所以 Redis 要想存储多种数据类型，就要设计一个通用的对象进行封装，这个对象就是 redisObject。
+
+// server.h
+typedef struct redisObject {
+    unsigned type:4;
+    unsigned encoding:4;
+    unsigned lru:LRU_BITS;
+    int refcount;
+    void *ptr;
+} robj;
+
+其中，最重要的 2 个字段：
+
+- type：面向用户的数据类型（String/List/Hash/Set/ZSet等）
+- encoding：每一种数据类型，可以对应不同的底层数据结构来实现（SDS/ziplist/intset/hashtable/skiplist等）
+
+例如 String，可以用 embstr（嵌入式字符串，redisObject 和 SDS 一起分配内存），也可以用 rawstr（redisObject 和 SDS 分开存储）实现。
+
+又或者，当用户写入的是一个「数字」时，底层会转成 long 来存储，节省内存。
+
+同理，Hash/Set/ZSet 在数据量少时，采用 ziplist 存储，否则就转为 hashtable 来存。
+
+所以，redisObject 的作用在于：
+
+1) 为多种数据类型提供统一的表示方式
+2) 同一种数据类型，底层可以对应不同实现，节省内存
+3）支持对象共享和引用计数，共享对象存储一份，可多次使用，节省内存
+
+redisObject 更像是连接「上层数据类型」和「底层数据结构」之间的桥梁。
+
+2、关于 String 类型的实现，底层对应 3 种数据结构：
+
+- embstr：小于 44 字节，嵌入式存储，redisObject 和 SDS 一起分配内存，只分配 1 次内存
+- rawstr：大于 44 字节，redisObject 和 SDS 分开存储，需分配 2 次内存
+- long：整数存储（小于 10000，使用共享对象池存储，但有个前提：Redis 没有设置淘汰策略，详见 object.c 的 tryObjectEncoding 函数）
+
+3、ziplist 的特点：
+
+1) 连续内存存储：每个元素紧凑排列，内存利用率高
+2) 变长编码：存储数据时，采用变长编码（满足数据长度的前提下，尽可能少分配内存）
+3）寻找元素需遍历：存放太多元素，性能会下降（适合少量数据存储）
+4) 级联更新：更新、删除元素，会引发级联更新（因为内存连续，前面数据膨胀/删除了，后面要跟着一起动）
+
+List、Hash、Set、ZSet 底层都用到了 ziplist。
+
+4、intset 的特点：
+
+1) Set 存储如果都是数字，采用 intset 存储
+2) 变长编码：数字范围不同，intset 会选择 int16/int32/int64 编码（intset.c 的 _intsetValueEncoding 函数）
+3）有序：intset 在存储时是有序的，这意味着查找一个元素，可使用「二分查找」（intset.c 的 intsetSearch 函数）
+4) 编码升级/降级：添加、更新、删除元素，数据范围发生变化，会引发编码长度升级或降级
+
+课后题：SDS 判断是否使用嵌入式字符串的条件是 44 字节，你知道为什么是 44 字节吗？
+
+嵌入式字符串会把 redisObject 和 SDS 一起分配内存，那在存储时结构是这样的：
+
+- redisObject：16 个字节
+- SDS：sdshdr8（3 个字节）+ SDS 字符数组（N 字节 + \0 结束符 1 个字节）
+
+Redis 规定嵌入式字符串最大以 64 字节存储，所以 N = 64 - 16(redisObject) - 3(sdshr8) - 1(\0)， N = 44 字节。
+*/
 struct redisCommand redisCommandTable[] = {
     {"module",moduleCommand,-2,"as",0,NULL,0,0,0,0,0},
     {"get",getCommand,2,"rF",0,NULL,1,1,1,0,0},
