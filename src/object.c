@@ -49,10 +49,11 @@ robj *createObject(int type, void *ptr) {
 
     /* Set the LRU to the current lruclock (minutes resolution), or
      * alternatively the LFU counter. */
+    //使用LFU算法时，lru变量包括以分钟为精度的UNIX时间戳和访问次数5
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
-        o->lru = LRU_CLOCK();
+        o->lru = LRU_CLOCK(); //否则，调用LRU_CLOCK函数获取LRU时钟值
     }
     return o;
 }
@@ -355,6 +356,7 @@ void incrRefCount(robj *o) {
     if (o->refcount != OBJ_SHARED_REFCOUNT) o->refcount++;
 }
 
+//释放redisobj
 void decrRefCount(robj *o) {
     if (o->refcount == 1) {
         switch(o->type) {

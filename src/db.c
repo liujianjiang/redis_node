@@ -44,7 +44,8 @@ int keyIsExpired(redisDb *db, robj *key);
  * Firstly, decrement the counter if the decrement time is reached.
  * Then logarithmically increment the counter, and update the access time. */
 void updateLFU(robj *val) {
-    unsigned long counter = LFUDecrAndReturn(val);
+    //举个例子，假设数据 A 在时刻 T 到 T+10 分钟这段时间内，被访问了 30 次，那么，这段时间内数据 A 的访问频率可以计算为 3 次 / 分钟（30 次 /10 分钟 = 3 次 / 分钟）。紧接着，在 T+10 分钟到 T+20 分钟这段时间内，数据 A 没有再被访问，那么此时，如果我们计算数据 A 在 T 到 T+20 分钟这段时间内的访问频率，它的访问频率就会降为 1.5 次 / 分钟（30 次 /20 分钟 = 1.5 次 / 分钟）。以此类推，随着时间的推移，如果数据 A 在 T+10 分钟后一直没有新的访问，那么它的访问频率就会逐步降低。这就是所谓的访问频率衰减。
+    unsigned long counter = LFUDecrAndReturn(val);//访问频率衰减
     counter = LFULogIncr(counter);
     val->lru = (LFUGetTimeInMinutes()<<8) | counter;
 }
@@ -52,10 +53,11 @@ void updateLFU(robj *val) {
 /* Low level key lookup API, not actually called directly from commands
  * implementations that should instead rely on lookupKeyRead(),
  * lookupKeyWrite() and lookupKeyReadWithFlags(). */
+//从全局哈希表中查找要访问的键值对
 robj *lookupKey(redisDb *db, robj *key, int flags) {
-    dictEntry *de = dictFind(db->dict,key->ptr);
+    dictEntry *de = dictFind(db->dict,key->ptr);//查找键值对
     if (de) {
-        robj *val = dictGetVal(de);
+        robj *val = dictGetVal(de);//获取键值对对应的redisObject结构体
 
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
@@ -65,9 +67,9 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
             !(flags & LOOKUP_NOTOUCH))
         {
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
-                updateLFU(val);
+                updateLFU(val);//如果使用了LFU策略，更新LFU计数值
             } else {
-                val->lru = LRU_CLOCK();
+                val->lru = LRU_CLOCK();//否则，调用LRU_CLOCK函数获取全局LRU时钟值
             }
         }
         return val;
@@ -271,8 +273,8 @@ robj *dbRandomKey(redisDb *db) {
 int dbSyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
-    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
-    if (dictDelete(db->dict,key->ptr) == DICT_OK) {
+    if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);//删除过期哈希表中的key
+    if (dictDelete(db->dict,key->ptr) == DICT_OK) { //删除全部哈希表中的key
         if (server.cluster_enabled) slotToKeyDel(key);
         return 1;
     } else {
@@ -1113,8 +1115,9 @@ long long getExpire(redisDb *db, robj *key) {
 void propagateExpire(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
 
+    //如果server启用了lazyfree-lazy-evict，那么argv[0]的值为unlink对象，否则为del对象 argv[1] = key; //被淘汰的key对象 ...}
     argv[0] = lazy ? shared.unlink : shared.del;
-    argv[1] = key;
+    argv[1] = key;//被淘汰的key对象
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);
 

@@ -27,6 +27,57 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+Redis 启动流程，主要的工作有：
+
+1、初始化前置操作（设置时区、随机种子）
+
+2、初始化 Server 的各种默认配置（server.c 的 initServerConfig 函数），默认配置见 server.h 中的 CONFIG_DEFAULT_XXX，比较典型的配置有：
+
+- 默认端口
+- 定时任务频率
+- 数据库数量
+- AOF 刷盘策略
+- 淘汰策略
+- 数据结构转换阈值
+- 主从复制参数
+
+3、加载配置启动参数，覆盖默认配置（config.c 的 loadServerConfig 函数）：
+
+- 解析命令行参数
+- 解析配置文件
+
+3、初始化 Server（server.c 的 initServer 函数），例如会初始化：
+
+- 共享对象池
+- 客户端链表
+- 从库链表
+- 监听端口
+- 全局哈希表
+- LRU 池
+- 注册定时任务函数
+- 注册监听请求函数
+
+4、启动事件循环（ae.c 的 aeMain 函数）
+
+- 处理请求
+- 处理定时任务
+
+这里补充一下，初始化 Server 完成后，Redis 还会启动 3 类后台线程（server.c 的 InitServerLast 函数），协助主线程工作（异步释放 fd、AOF 每秒刷盘、lazyfree）。
+
+课后题：Redis 源码的 main 函数在调用 initServer 函数之前，会执行如下的代码片段，你知道这个代码片段的作用是什么吗？
+
+int main(int argc, char **argv) {
+...
+server.supervised = redisIsSupervised(server.supervised_mode);
+int background = server.daemonize && !server.supervised;
+if (background) daemonize();
+...
+}
+
+Redis 可以配置以守护进程的方式启动（配置文件 daemonize = yes），也可以把 Redis 托管给 upstart 或 systemd 来启动 / 停止（supervised = upstart|systemd|auto）。
+*/
+
 #include "server.h"
 #include "cluster.h"
 #include "slowlog.h"
@@ -1220,8 +1271,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
-    unsigned long lruclock = getLRUClock();
-    atomicSet(server.lruclock,lruclock);
+    unsigned long lruclock = getLRUClock();//默认情况下，每100毫秒调用getLRUClock函数更新一次全局LRU时钟值
+    atomicSet(server.lruclock,lruclock);//设置lruclock变量
 
     /* Record the max memory used since the server was started. */
     if (zmalloc_used_memory() > server.stat_peak_memory)
@@ -1257,6 +1308,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* We received a SIGTERM, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
+    //如果收到进程结束信号，则执行server关闭操作
     if (server.shutdown_asap) {
         if (prepareForShutdown(SHUTDOWN_NOFLAGS) == C_OK) exit(0);
         serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
@@ -1290,10 +1342,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     }
 
     /* We need to do a few operations on clients asynchronously. */
-    clientsCron();
+    clientsCron();//执行客户端的异步操作
 
     /* Handle background operations on Redis databases. */
-    databasesCron();
+    databasesCron();//执行数据库的后台操作
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
@@ -1348,6 +1400,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
              * the given amount of seconds, and if the latest bgsave was
              * successful or if, in case of an error, at least
              * CONFIG_BGSAVE_RETRY_DELAY seconds already elapsed. */
+            //触发rdb任务
             if (server.dirty >= sp->changes &&
                 server.unixtime-server.lastsave > sp->seconds &&
                 (server.unixtime-server.lastbgsave_try >
@@ -1364,15 +1417,18 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         }
 
         /* Trigger an AOF rewrite if needed. */
+        //如果AOF功能启用、没有RDB子进程和AOF重写子进程在执行、AOF文件大小比例设定了阈值，以及AOF文件大小绝对值超出了阈值，那么，进一步判断AOF文件大小比例是否超出阈值
         if (server.aof_state == AOF_ON &&
             server.rdb_child_pid == -1 &&
             server.aof_child_pid == -1 &&
             server.aof_rewrite_perc &&
             server.aof_current_size > server.aof_rewrite_min_size)
         {
+            //计算AOF文件当前大小超出基础大小的比例
             long long base = server.aof_rewrite_base_size ?
                 server.aof_rewrite_base_size : 1;
             long long growth = (server.aof_current_size*100/base) - 100;
+            //如果AOF文件当前大小超出基础大小的比例已经超出预设阈值，那么执行AOF重写
             if (growth >= server.aof_rewrite_perc) {
                 serverLog(LL_NOTICE,"Starting automatic rewriting of AOF on %lld%% growth",growth);
                 rewriteAppendOnlyFileBackground();
@@ -1389,6 +1445,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * clear the AOF error in case of success to make the DB writable again,
      * however to try every second is enough in case of 'hz' is set to
      * an higher frequency. */
+    //每1秒执行1次，检查AOF是否有写错误
     run_with_period(1000) {
         if (server.aof_last_write_status == C_ERR)
             flushAppendOnlyFile(0);
@@ -1490,6 +1547,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     flushAppendOnlyFile(0);
 
     /* Handle writes with pending output buffers. */
+
     handleClientsWithPendingWrites();
 
     /* Before we are going to sleep, let the threads access the dataset by
@@ -1723,8 +1781,8 @@ void initServerConfig(void) {
     server.always_show_logo = CONFIG_DEFAULT_ALWAYS_SHOW_LOGO;
     server.lua_time_limit = LUA_SCRIPT_TIME_LIMIT;
 
-    unsigned int lruclock = getLRUClock();
-    atomicSet(server.lruclock,lruclock);
+    unsigned int lruclock = getLRUClock();//计算全局LRU时钟值
+    atomicSet(server.lruclock,lruclock);//设置lruclock为刚计算的全局时钟值
     resetServerSaveParams();
 
     appendServerSaveParams(60*60,1);  /* save after 1 hour and 1 change */
@@ -1779,9 +1837,9 @@ void initServerConfig(void) {
     /* Command table -- we initiialize it here as it is part of the
      * initial configuration, since command names may be changed via
      * redis.conf using the rename-command directive. */
-    server.commands = dictCreate(&commandTableDictType,NULL);
+    server.commands = dictCreate(&commandTableDictType,NULL);//命令哈希表创建
     server.orig_commands = dictCreate(&commandTableDictType,NULL);
-    populateCommandTable();//初始化命令表
+    populateCommandTable();//redis提供的命令名称，和对应的实现函数，插入哈希表中
     server.delCommand = lookupCommandByCString("del");
     server.multiCommand = lookupCommandByCString("multi");
     server.lpushCommand = lookupCommandByCString("lpush");
@@ -2137,7 +2195,7 @@ void initServer(void) {
 
     createSharedObjects();//创建共享对象
     adjustOpenFilesLimit();
-    server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);//创建事件循环eventLoop
+    server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);//创建事件驱动框架
     if (server.el == NULL) {
         serverLog(LL_WARNING,
             "Failed creating the event loop. Error message: '%s'",
@@ -2152,6 +2210,7 @@ void initServer(void) {
         exit(1);
 
     /* Open the listening Unix domain socket. */
+    //监听unix socket
     if (server.unixsocket != NULL) {
         unlink(server.unixsocket); /* don't care if this fails */
         server.sofd = anetUnixServer(server.neterr,server.unixsocket,
@@ -2170,6 +2229,7 @@ void initServer(void) {
     }
 
     /* Create the Redis databases, and initialize other internal state. */
+    //redisDB 数据库执行初始化操作，包括创建全局哈希表，为过期 key、被 BLPOP 阻塞的 key、将被 PUSH 的 key 和被监听的 key 创建相应的信息表。
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
         server.db[j].expires = dictCreate(&keyptrDictType,NULL);
@@ -2657,7 +2717,7 @@ void call(client *c, int flags) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
-    moduleCallCommandFilters(c);
+    moduleCallCommandFilters(c);//将 Redis 命令替换成 module 中想要替换的命令
 
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
@@ -2671,7 +2731,7 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
-    c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
+    c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);//在全局变量 server 的 commands 成员变量中查找相关的命令
     if (!c->cmd) {
         flagTransaction(c);
         sds args = sdsempty();
@@ -2844,6 +2904,7 @@ int processCommand(client *c) {
     }
 
     /* Exec the command */
+    //如果客户端有CLIENT_MULTI标记，并且当前不是exec、discard、multi和watch命令
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
@@ -3974,11 +4035,12 @@ void createPidFile(void) {
     }
 }
 
+//这里需要解释一下，执行daemonize()函数的时候本质是fork()进程，并不是大多文章说的那样是守护线程，父亲fork成功后是直接退出（在前端的效果就是，启动命令任务完成但是ps是有一个redis的进程），剩余的任务是交给fork出的子进程完成的（可以参考《深入理解操作系统》 第8章-异常控制流-进程中的内容）
 void daemonize(void) {
     int fd;
 
-    if (fork() != 0) exit(0); /* parent exits */
-    setsid(); /* create a new session */
+    if (fork() != 0) exit(0); /* parent exits *///fork成功执行或失败，则父进程退出
+    setsid(); /* create a new session *///创建新的session
 
     /* Every output goes to /dev/null. If Redis is daemonized but
      * the 'logfile' is set to 'stdout' in the configuration file
@@ -4298,6 +4360,7 @@ int main(int argc, char **argv) {
     int j;
 
 #ifdef REDIS_TEST
+///如果启动参数有test和ziplist，那么就调用ziplistTest函数进行ziplist的测试
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
         if (!strcasecmp(argv[2], "ziplist")) {
             return ziplistTest(argc, argv);
@@ -4327,17 +4390,18 @@ int main(int argc, char **argv) {
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);
 #endif
+    //设置时区
     setlocale(LC_COLLATE,"");
     tzset(); /* Populates 'timezone' global. */
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
     srand(time(NULL)^getpid());
     gettimeofday(&tv,NULL);
-
+    //设置随机种子
     char hashseed[16];
     getRandomHexChars(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed((uint8_t*)hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
-    initServerConfig();
+    initServerConfig();//初始化默认配置
     moduleInitModulesSystem();
 
     /* Store the executable path and arguments in a safe place in order
@@ -4350,17 +4414,20 @@ int main(int argc, char **argv) {
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel
      * data structures with master nodes to monitor. */
+    //判断server是否设置为哨兵模式
     if (server.sentinel_mode) {
-        initSentinelConfig();
-        initSentinel();
+        initSentinelConfig();//初始化哨兵配置
+        initSentinel();//初始化哨兵模式
     }
 
     /* Check if we need to start in redis-check-rdb/aof mode. We just execute
      * the program main. However the program is part of the Redis executable
      * so that we can easily execute an RDB check on loading errors. */
+    //如果运行的是redis-check-rdb程序，调用redis_check_rdb_main函数检测RDB文件
     if (strstr(argv[0],"redis-check-rdb") != NULL)
         redis_check_rdb_main(argc,argv,NULL);
     else if (strstr(argv[0],"redis-check-aof") != NULL)
+    //如果运行的是redis-check-aof程序，调用redis_check_aof_main函数检测AOF文件
         redis_check_aof_main(argc,argv);
 
     if (argc >= 2) {
@@ -4399,6 +4466,7 @@ int main(int argc, char **argv) {
          * configuration file. For instance --port 6380 will generate the
          * string "port 6380\n" to be parsed after the actual file name
          * is parsed, if any. */
+        //对每个运行参数进行解析
         while(j != argc) {
             if (argv[j][0] == '-' && argv[j][1] == '-') {
                 /* Option name */
@@ -4425,6 +4493,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
         resetServerSaveParams();
+        //对命令行参数和配置文件中的参数进行合并处理，然后为 Redis 各功能模块的关键参数设置合适的取值，以便 server 能高效地运行
         loadServerConfig(configfile,options);
         sdsfree(options);
     }
@@ -4444,16 +4513,20 @@ int main(int argc, char **argv) {
         serverLog(LL_WARNING, "Configuration loaded");
     }
 
-    server.supervised = redisIsSupervised(server.supervised_mode);
-    int background = server.daemonize && !server.supervised;
+    //redis守护进程方式启动
+    server.supervised = redisIsSupervised(server.supervised_mode);//daemonize 表示，是否要设置 Redis 以守护进程方式运行
+    //如果配置参数daemonize为1，supervised值为0，那么设置background值为1，否则，设置其为0
+    int background = server.daemonize && !server.supervised;//supervised 表示，是否使用 upstart 或是 systemd 这两种守护进程的管理程序来管理 Redis
     if (background) daemonize();
 
+    //资源管理所需的数据结构初始化、键值对数据库初始化、server 网络框架初始化
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
     redisAsciiArt();
     checkTcpBacklogSettings();
 
+    //判断当前 server 是否为哨兵模式。如果是哨兵模式，main 函数会调用 sentinelIsRunning 函数，设置启动哨兵模式。否则的话，main 函数会调用 loadDataFromDisk 函数，从磁盘上加载 AOF 或者是 RDB 文件，以便恢复之前的数据。
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
         serverLog(LL_WARNING,"Server initialized");
@@ -4477,8 +4550,8 @@ int main(int argc, char **argv) {
     #endif /* __arm64__ */
     #endif /* __linux__ */
         moduleLoadFromQueue();
-        InitServerLast();
-        loadDataFromDisk();
+        InitServerLast();//创建后台线程，把部分任务交给后台线程处理
+        loadDataFromDisk();//从磁盘上加载 AOF 或者是 RDB 文件，以便恢复之前的数据。
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
                 serverLog(LL_WARNING,
@@ -4492,6 +4565,7 @@ int main(int argc, char **argv) {
         if (server.sofd > 0)
             serverLog(LL_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
     } else {
+        //哨兵模式
         InitServerLast();
         sentinelIsRunning();
     }

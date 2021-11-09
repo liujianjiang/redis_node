@@ -69,7 +69,7 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
 typedef struct aeFileEvent {
-    int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
+    int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */ //掩码标记，包括可读事件、可写事件和屏障事件
     aeFileProc *rfileProc; //函数指针指向读事件处理函数
     aeFileProc *wfileProc;//指向写事件处理函数
     void *clientData; //指向对应的客户端对象
@@ -103,9 +103,9 @@ typedef struct aeEventLoop {
     aeFiredEvent *fired; /* Fired events */ //被触发的文件事件
     aeTimeEvent *timeEventHead; //时间事件链表头节点
     int stop;
-    void *apidata; /* This is used for polling API specific data */
-    aeBeforeSleepProc *beforesleep;
-    aeBeforeSleepProc *aftersleep;
+    void *apidata; /* This is used for polling API specific data */ ////和API调用接口相关的数据
+    aeBeforeSleepProc *beforesleep;//进入事件循环流程前执行的函数
+    aeBeforeSleepProc *aftersleep;//退出事件循环流程后执行的函数
 } aeEventLoop;
 
 /* Prototypes */
