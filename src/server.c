@@ -1459,7 +1459,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Replication cron function -- used to reconnect to master,
      * detect transfer failures, start background RDB transfers and so forth. */
-    run_with_period(1000) replicationCron();
+    run_with_period(1000) replicationCron();//检查从库复制状态机，建立主从连接
 
     /* Run the Redis Cluster cron. */
     run_with_period(100) {
@@ -2333,7 +2333,7 @@ void initServer(void) {
     replicationScriptCacheInit();
     scriptingInit(1);
     slowlogInit();
-    latencyMonitorInit();
+    latencyMonitorInit();//延迟事件监控
 }
 
 /* Some steps in server initialization need to be done last (after modules
@@ -4402,7 +4402,7 @@ int main(int argc, char **argv) {
     dictSetHashFunctionSeed((uint8_t*)hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();//初始化默认配置
-    moduleInitModulesSystem();
+    moduleInitModulesSystem();//模块框架初始化
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */

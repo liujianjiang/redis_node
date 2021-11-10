@@ -162,11 +162,11 @@ typedef struct instanceLink {
 } instanceLink;
 
 typedef struct sentinelRedisInstance {
-    int flags;      /* See SRI_... defines */
-    char *name;     /* Master name from the point of view of this sentinel. */
-    char *runid;    /* Run ID of this instance, or unique ID if is a Sentinel.*/
-    uint64_t config_epoch;  /* Configuration epoch. */
-    sentinelAddr *addr; /* Master host. */
+    int flags;      /* See SRI_... defines */ //实例类型、状态的标记
+    char *name;     /* Master name from the point of view of this sentinel. */ //实例名称
+    char *runid;    /* Run ID of this instance, or unique ID if is a Sentinel.*/ //实例ID
+    uint64_t config_epoch;  /* Configuration epoch. */ //配置的纪元
+    sentinelAddr *addr; /* Master host. */ //实例地址信息
     instanceLink *link; /* Link to the instance, may be shared for Sentinels. */
     mstime_t last_pub_time;   /* Last time we sent hello via Pub/Sub. */
     mstime_t last_hello_time; /* Only used if SRI_SENTINEL is set. Last time
@@ -174,8 +174,8 @@ typedef struct sentinelRedisInstance {
                                  via Pub/Sub. */
     mstime_t last_master_down_reply_time; /* Time of last reply to
                                              SENTINEL is-master-down command. */
-    mstime_t s_down_since_time; /* Subjectively down since time. */
-    mstime_t o_down_since_time; /* Objectively down since time. */
+    mstime_t s_down_since_time; /* Subjectively down since time. */ //主观下线的时长
+    mstime_t o_down_since_time; /* Objectively down since time. */ //客观下线的时长
     mstime_t down_after_period; /* Consider it down after that period. */
     mstime_t info_refresh;  /* Time at which we received INFO output from it. */
     dict *renamed_commands;     /* Commands renamed in this instance:
@@ -193,8 +193,8 @@ typedef struct sentinelRedisInstance {
     mstime_t slave_conf_change_time; /* Last time slave master addr changed. */
 
     /* Master specific. */
-    dict *sentinels;    /* Other sentinels monitoring the same master. */
-    dict *slaves;       /* Slaves for this master instance. */
+    dict *sentinels;    /* Other sentinels monitoring the same master. */ //监听同一个主节点的其他哨兵实例
+    dict *slaves;       /* Slaves for this master instance. */ //主节点的从节点
     unsigned int quorum;/* Number of sentinels that need to agree on failure. */
     int parallel_syncs; /* How many slaves to reconfigure at same time. */
     char *auth_pass;    /* Password to use for AUTH against master & slaves. */
@@ -231,19 +231,19 @@ typedef struct sentinelRedisInstance {
 
 /* Main state. */
 struct sentinelState {
-    char myid[CONFIG_RUN_ID_SIZE+1]; /* This sentinel ID. */
-    uint64_t current_epoch;         /* Current epoch. */
-    dict *masters;      /* Dictionary of master sentinelRedisInstances.
+    char myid[CONFIG_RUN_ID_SIZE+1]; /* This sentinel ID. */ //哨兵实例ID
+    uint64_t current_epoch;         /* Current epoch. */ //当前纪元
+    dict *masters;      /* Dictionary of master sentinelRedisInstances. //监听的主节点的哈希表
                            Key is the instance name, value is the
                            sentinelRedisInstance structure pointer. */
-    int tilt;           /* Are we in TILT mode? */
-    int running_scripts;    /* Number of scripts in execution right now. */
-    mstime_t tilt_start_time;       /* When TITL started. */
-    mstime_t previous_time;         /* Last time we ran the time handler. */
-    list *scripts_queue;            /* Queue of user scripts to execute. */
+    int tilt;           /* Are we in TILT mode? */ //是否处于 TILT模式
+    int running_scripts;    /* Number of scripts in execution right now. */ //脚本运行个数
+    mstime_t tilt_start_time;       /* When TITL started. */ //tilt模式的起始时间
+    mstime_t previous_time;         /* Last time we ran the time handler. */ //上一次执行时间处理函数的时间
+    list *scripts_queue;            /* Queue of user scripts to execute. */ //用于保存脚本的队列
     char *announce_ip;  /* IP addr that is gossiped to other sentinels if
-                           not NULL. */
-    int announce_port;  /* Port that is gossiped to other sentinels if
+                           not NULL. */ //向其他哨兵实例发送的IP信息
+    int announce_port;  /* Port that is gossiped to other sentinels if //向其他哨兵实例发送的端口号
                            non zero. */
     unsigned long simfailure_flags; /* Failures simulation. */
     int deny_scripts_reconfig; /* Allow SENTINEL SET ... to change script
@@ -459,8 +459,8 @@ struct redisCommand sentinelcmds[] = {
 /* This function overwrites a few normal Redis config default with Sentinel
  * specific defaults. */
 void initSentinelConfig(void) {
-    server.port = REDIS_SENTINEL_PORT;
-    server.protected_mode = 0; /* Sentinel must be exposed. */
+    server.port = REDIS_SENTINEL_PORT;//改为哨兵模式端口号
+    server.protected_mode = 0; /* Sentinel must be exposed. */ 
 }
 
 /* Perform the Sentinel mode initialization. */

@@ -201,12 +201,13 @@ int hashTypeExists(robj *o, sds field) {
 #define HASH_SET_COPY 0
 int hashTypeSet(robj *o, sds field, sds value, int flags) {
     int update = 0;
-
+    // 如果当前是 ziplist 编码存储
     if (o->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *zl, *fptr, *vptr;
 
         zl = o->ptr;
         fptr = ziplistIndex(zl, ZIPLIST_HEAD);
+        // field 在 ziplist 中，从 ziplist 中删除，在插入新值
         if (fptr != NULL) {
             fptr = ziplistFind(fptr, (unsigned char*)field, sdslen(field), 1);
             if (fptr != NULL) {
@@ -223,7 +224,7 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
                         sdslen(value));
             }
         }
-
+        // field 不在 ziplist 中，则插入到 ziplist
         if (!update) {
             /* Push new field/value pair onto the tail of the ziplist */
             zl = ziplistPush(zl, (unsigned char*)field, sdslen(field),
@@ -234,9 +235,10 @@ int hashTypeSet(robj *o, sds field, sds value, int flags) {
         o->ptr = zl;
 
         /* Check if the ziplist needs to be converted to a hash table */
+        // ziplist 元素超过阈值，转为 hashtable
         if (hashTypeLength(o) > server.hash_max_ziplist_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT);
-    } else if (o->encoding == OBJ_ENCODING_HT) {
+    } else if (o->encoding == OBJ_ENCODING_HT) {// 如果是 hashtable 编码存储
         dictEntry *de = dictFind(o->ptr,field);
         if (de) {
             sdsfree(dictGetVal(de));

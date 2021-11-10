@@ -28,6 +28,43 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+1、Redis 主从复制分为 4 个阶段：
+
+- 初始化
+- 建立连接
+- 主从握手
+- 数据传输（全量/增量复制）
+
+2、主从复制流程由于是是「从库」发起的，所以重点要看从库的执行流程
+
+3、从库发起复制的方式有 3 个：
+
+- 执行 slaveof / replicaof 命令
+- 配置文件配置了主库的 ip port
+- 启动实例时指定了主库的 ip port
+
+4、建议从 slaveof / replicaof 命令跟源码进去，来看整个主从复制的流程（入口在 replication.c 的 replicaofCommand 函数）
+
+5、从库执行这个命令后，会先在 server 结构体上，记录主库的 ip port，然后把 server.repl_state 从 REPL_STATE_NONE 改为 REPL_STATE_CONNECT，「复制状态机」启动
+
+6、随后从库会在定时任务（server.c 的 serverCron 函数）中会检测 server.repl_state 的状态，然后向主库发起复制请求（replication.c 的 replicationCron 函数），进入复制流程（replication.c 的 connectWithMaster 函数）
+
+7、从库会与主库建立连接（REPL_STATE_CONNECTING），注册读事件（syncWithMaster 函数），之后主从进入握手认证阶段，从库会告知主库自己的 ip port 等信息，在这期间会流转多个状态（server.h 中定义的复制状态）：
+
+8、完成握手后，从库向主库发送 PSYNC 命令和自己的 offset，首先尝试「增量同步」，如果 offset = -1，主库返回 FULLRESYNC 表示「全量同步」数据，否则返回 CONTINUE 增量同步
+
+9、如果是全量同步，主库会先生成 RDB，从库等待，主库完成 RDB 后发给从库，从库接收 RDB，然后清空实例数据，加载 RDB，之后读取主库发来的「增量」数据
+
+10、如果是增量同步，从库只需接收主库传来的增量数据即可
+
+课后题：当一个实例是主库时，为什么不需要使用状态机来实现主库在主从复制时的流程流转？
+
+因为复制数据的发起方是从库，从库要求复制数据会经历多个阶段（发起连接、握手认证、请求数据），而主库只需要「被动」接收从库的请求，根据需要「响应数据」即可完成整个流程，所以主库不需要状态机流转。
+*/
+
+
+
 
 #include "server.h"
 #include "cluster.h"
@@ -74,7 +111,7 @@ char *replicationGetSlaveName(client *c) {
 }
 
 /* ---------------------------------- MASTER -------------------------------- */
-
+//循环缓冲区的创建函数
 void createReplicationBacklog(void) {
     serverAssert(server.repl_backlog == NULL);
     server.repl_backlog = zmalloc(server.repl_backlog_size);
@@ -1480,18 +1517,21 @@ char *sendSynchronousCommand(int flags, int fd, ...) {
 #define PSYNC_FULLRESYNC 3
 #define PSYNC_NOT_SUPPORTED 4
 #define PSYNC_TRY_LATER 5
+//负责向主库发送数据同步的命令。主库收到命令后，会根据从库发送的主库 ID、复制进度值 offset，来判断是进行全量复制还是增量复制，或者是返回错误
 int slaveTryPartialResynchronization(int fd, int read_reply) {
     char *psync_replid;
     char psync_offset[32];
     sds reply;
 
     /* Writing half */
+    //发送PSYNC命令
     if (!read_reply) {
         /* Initially set master_initial_offset to -1 to mark the current
          * master run_id and offset as not valid. Later if we'll be able to do
          * a FULL resync using the PSYNC command we'll set the offset at the
          * right value, so that this information will be propagated to the
          * client structure representing the master into server.master. */
+        //从库第一次和主库同步时，设置offset为-1
         server.master_initial_offset = -1;
 
         if (server.cached_master) {
@@ -1505,6 +1545,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         }
 
         /* Issue the PSYNC command */
+        //调用sendSynchronousCommand发送PSYNC命令
         reply = sendSynchronousCommand(SYNC_CMD_WRITE,fd,"PSYNC",psync_replid,psync_offset,NULL);
         if (reply != NULL) {
             serverLog(LL_WARNING,"Unable to send PSYNC to master: %s",reply);
@@ -1512,10 +1553,12 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
             aeDeleteFileEvent(server.el,fd,AE_READABLE);
             return PSYNC_WRITE_ERROR;
         }
+        //发送命令后，等待主库响应
         return PSYNC_WAIT_REPLY;
     }
 
     /* Reading half */
+    //读取主库的响应
     reply = sendSynchronousCommand(SYNC_CMD_READ,fd,NULL);
     if (sdslen(reply) == 0) {
         /* The master may send empty newlines after it receives PSYNC
@@ -1525,7 +1568,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
     }
 
     aeDeleteFileEvent(server.el,fd,AE_READABLE);
-
+    //主库返回FULLRESYNC，全量复制
     if (!strncmp(reply,"+FULLRESYNC",11)) {
         char *replid = NULL, *offset = NULL;
 
@@ -1558,7 +1601,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         sdsfree(reply);
         return PSYNC_FULLRESYNC;
     }
-
+      //主库返回CONTINUE，执行增量复制
     if (!strncmp(reply,"+CONTINUE",9)) {
         /* Partial resync was accepted. */
         serverLog(LL_NOTICE,
@@ -1613,7 +1656,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
      *
      * Return PSYNC_NOT_SUPPORTED on errors we don't understand, otherwise
      * return PSYNC_TRY_LATER if we believe this is a transient error. */
-
+    
     if (!strncmp(reply,"-NOMASTERLINK",13) ||
         !strncmp(reply,"-LOADING",8))
     {
@@ -1623,7 +1666,7 @@ int slaveTryPartialResynchronization(int fd, int read_reply) {
         sdsfree(reply);
         return PSYNC_TRY_LATER;
     }
-
+    //主库返回错误信息
     if (strncmp(reply,"-ERR",4)) {
         /* If it's not an error, log the unexpected event. */
         serverLog(LL_WARNING,
@@ -1835,8 +1878,9 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
                              server.repl_state);
         goto error;
     }
-
+    //读取PSYNC命令的返回结果
     psync_result = slaveTryPartialResynchronization(fd,1);
+    //PSYNC结果还没有返回，先从syncWithMaster函数返回处理其他操作
     if (psync_result == PSYNC_WAIT_REPLY) return; /* Try again later... */
 
     /* If the master is in an transient error, we should try to PSYNC
@@ -1847,7 +1891,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
 
     /* Note: if PSYNC does not return WAIT_REPLY, it will take care of
      * uninstalling the read handler from the file descriptor. */
-
+    //如果PSYNC结果是PSYNC_CONTINUE，从syncWithMaster函数返回，后续执行增量复制
     if (psync_result == PSYNC_CONTINUE) {
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Master accepted a Partial Resynchronization.");
         return;
@@ -1886,6 +1930,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
     }
 
     /* Setup the non blocking download of the bulk file. */
+    //如果执行全量复制的话，针对连接上的读事件，创建readSyncBulkPayload回调函数
     if (aeCreateFileEvent(server.el,fd, AE_READABLE,readSyncBulkPayload,NULL)
             == AE_ERR)
     {
@@ -1895,7 +1940,7 @@ void syncWithMaster(aeEventLoop *el, int fd, void *privdata, int mask) {
         goto error;
     }
 
-    server.repl_state = REPL_STATE_TRANSFER;
+    server.repl_state = REPL_STATE_TRANSFER;//将从库状态机置为REPL_STATE_TRANSFER
     server.repl_transfer_size = -1;
     server.repl_transfer_read = 0;
     server.repl_transfer_last_fsync_off = 0;
@@ -1918,9 +1963,10 @@ write_error: /* Handle sendSynchronousCommand(SYNC_CMD_WRITE) errors. */
     goto error;
 }
 
+//建立主从连接
 int connectWithMaster(void) {
     int fd;
-
+    //从库和主库建立连接
     fd = anetTcpNonBlockBestEffortBindConnect(NULL,
         server.masterhost,server.masterport,NET_FIRST_BIND_ADDR);
     if (fd == -1) {
@@ -1928,7 +1974,7 @@ int connectWithMaster(void) {
             strerror(errno));
         return C_ERR;
     }
-
+    //在建立的连接上注册读写事件，对应的回调函数是syncWithMaster
     if (aeCreateFileEvent(server.el,fd,AE_READABLE|AE_WRITABLE,syncWithMaster,NULL) ==
             AE_ERR)
     {
@@ -1939,7 +1985,7 @@ int connectWithMaster(void) {
 
     server.repl_transfer_lastio = server.unixtime;
     server.repl_transfer_s = fd;
-    server.repl_state = REPL_STATE_CONNECTING;
+    server.repl_state = REPL_STATE_CONNECTING;//状态扭转为主从已连接
     return C_OK;
 }
 
@@ -2093,6 +2139,7 @@ void replicaofCommand(client *c) {
             return;
 
         /* Check if we are already attached to the specified slave */
+        /* 检查是否已记录主库信息，如果已经记录了，那么直接返回连接已建立的消息 */
         if (server.masterhost && !strcasecmp(server.masterhost,c->argv[1]->ptr)
             && server.masterport == port) {
             serverLog(LL_NOTICE,"REPLICAOF would result into synchronization with the master we are already connected with. No operation performed.");
@@ -2101,6 +2148,7 @@ void replicaofCommand(client *c) {
         }
         /* There was no previous master or the user specified a different one,
          * we can continue. */
+        /* 如果没有记录主库的IP和端口号，设置主库的信息 */
         replicationSetMaster(c->argv[1]->ptr, port);
         sds client = catClientInfoString(sdsempty(),c);
         serverLog(LL_NOTICE,"REPLICAOF %s:%d enabled (user request from '%s')",
@@ -2605,6 +2653,7 @@ void replicationCron(void) {
     }
 
     /* Check if we should connect to a MASTER */
+    /* 如果从库实例的状态是REPL_STATE_CONNECT，那么从库通过connectWithMaster和主库建立连接 */
     if (server.repl_state == REPL_STATE_CONNECT) {
         serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
             server.masterhost, server.masterport);

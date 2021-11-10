@@ -5482,8 +5482,8 @@ size_t moduleCount(void) {
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
-    server.moduleapi = dictCreate(&moduleAPIDictType,NULL);
-    server.sharedapi = dictCreate(&moduleAPIDictType,NULL);
+    server.moduleapi = dictCreate(&moduleAPIDictType,NULL);//模块之间共享的 API
+    server.sharedapi = dictCreate(&moduleAPIDictType,NULL);//模块向外暴露的 API
     REGISTER_API(Alloc);
     REGISTER_API(Calloc);
     REGISTER_API(Realloc);

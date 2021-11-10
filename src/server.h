@@ -1005,7 +1005,7 @@ struct redisServer {
     char neterr[ANET_ERR_LEN];   /* Error buffer for anet.c */
     dict *migrate_cached_sockets;/* MIGRATE cached sockets */
     uint64_t next_client_id;    /* Next client unique ID. Incremental. */
-    int protected_mode;         /* Don't accept external connections. */
+    int protected_mode;         /* Don't accept external connections. */ //是否允许外部哨兵连接
     /* RDB / AOF loading information */
     int loading;                /* We are loading data from disk if true */
     off_t loading_total_bytes;
@@ -1153,13 +1153,18 @@ struct redisServer {
     long long second_replid_offset; /* Accept offsets up to this for replid2. */
     int slaveseldb;                 /* Last SELECTed DB in replication output */
     int repl_ping_slave_period;     /* Master pings the slave every N seconds */
-    char *repl_backlog;             /* Replication backlog for partial syncs */
-    long long repl_backlog_size;    /* Backlog circular buffer size */
-    long long repl_backlog_histlen; /* Backlog actual data length */
-    long long repl_backlog_idx;     /* Backlog circular buffer current offset,
+
+    //repl_backlog_size：这个变量值记录的是循环缓冲区本身的总长度。这个值也对应了 redis.conf 配置文件中的 repl-backlog-size 配置项。
+    //repl_backlog_histlen：这个变量值记录的是循环缓冲区中目前累积的数据的长度，这个值不会超过缓冲区的总长度。
+    //repl_backlog_idx：这个变量值记录的是循环缓冲区接下来写数据时应该写入的位置，而它就对应了刚才向你介绍的循环缓冲区的写指针。
+    //repl_backlog_off：这个变量值记录的是循环缓冲区中最早保存的数据的首字节，在全局范围内的偏移值。这里你需要注意的是，因为循环缓冲区会被重复使用，所以一旦缓冲区写满后，又开始从头写数据时，缓冲区中的旧数据会被覆盖。因此，这个值就记录了仍然保存在缓冲区中，又是最早写入的数据的首字节，在全局范围内的偏移量。
+    char *repl_backlog;             /* Replication backlog for partial syncs */ //基于字符数组的循环缓冲区
+    long long repl_backlog_size;    /* Backlog circular buffer size *///循环缓冲区总长度
+    long long repl_backlog_histlen; /* Backlog actual data length *///循环缓冲区中当前累积的数据的长度
+    long long repl_backlog_idx;     /* Backlog circular buffer current offset//循环缓冲区的写指针位置
                                        that is the next byte will'll write to.*/
     long long repl_backlog_off;     /* Replication "master offset" of first
-                                       byte in the replication backlog buffer.*/
+                                       byte in the replication backlog buffer.*///循环缓冲区最早保存的数据的首字节在全局范围内的偏移
     time_t repl_backlog_time_limit; /* Time without slaves after the backlog
                                        gets released. */
     time_t repl_no_slaves_since;    /* We have no slaves since that time.
@@ -1170,14 +1175,14 @@ struct redisServer {
     int repl_diskless_sync;         /* Send RDB to slaves sockets directly. */
     int repl_diskless_sync_delay;   /* Delay to start a diskless repl BGSAVE. */
     /* Replication (slave) */
-    char *masterauth;               /* AUTH with this password with master */
-    char *masterhost;               /* Hostname of master */
-    int masterport;                 /* Port of master */
+    char *masterauth;               /* AUTH with this password with master *///用于和主库进行验证的密码
+    char *masterhost;               /* Hostname of master *///主库主机名
+    int masterport;                 /* Port of master *///主库端口
     int repl_timeout;               /* Timeout after N seconds of master idle */
-    client *master;     /* Client that is master for this slave */
-    client *cached_master; /* Cached master to be reused for PSYNC. */
+    client *master;     /* Client that is master for this slave *//* 从库上用来和主库连接的客户端 */
+    client *cached_master; /* Cached master to be reused for PSYNC. *//* 从库上缓存的主库信息 */
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
-    int repl_state;          /* Replication status if the instance is a slave */
+    int repl_state;          /* Replication status if the instance is a slave *//* 从库的复制状态机 */
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
     off_t repl_transfer_last_fsync_off; /* Offset when we fsync-ed last time. */
