@@ -98,6 +98,7 @@ static void zmalloc_default_oom(size_t size) {
 
 static void (*zmalloc_oom_handler)(size_t) = zmalloc_default_oom;
 
+//内存分配
 void *zmalloc(size_t size) {
     ASSERT_NO_SIZE_OVERFLOW(size);
     void *ptr = malloc(size+PREFIX_SIZE);
@@ -132,6 +133,7 @@ void zfree_no_tcache(void *ptr) {
 }
 #endif
 
+//分配内存
 void *zcalloc(size_t size) {
     ASSERT_NO_SIZE_OVERFLOW(size);
     void *ptr = calloc(1, size+PREFIX_SIZE);
@@ -406,6 +408,7 @@ size_t zmalloc_get_private_dirty(long pid) {
  * 3) Was modified for Redis by Matt Stancliff.
  * 4) This note exists in order to comply with the original license.
  */
+//获取物理内存的字节数
 size_t zmalloc_get_memory_size(void) {
 #if defined(__unix__) || defined(__unix) || defined(unix) || \
     (defined(__APPLE__) && defined(__MACH__))

@@ -69,13 +69,13 @@ static int aeApiCreate(aeEventLoop *eventLoop) {
     aeApiState *state = zmalloc(sizeof(aeApiState));
 
     if (!state) return -1;
-    ////将epoll_event数组保存在aeApiState结构体变量state中
+    //将epoll_event数组保存在aeApiState结构体变量state中
     state->events = zmalloc(sizeof(struct epoll_event)*eventLoop->setsize);
     if (!state->events) {
         zfree(state);
         return -1;
     }
-    ////将epoll实例描述符保存在aeApiState结构体变量state中
+    //将epoll实例描述符保存在aeApiState结构体变量state中
     state->epfd = epoll_create(1024); /* 1024 is just a hint for the kernel */
     if (state->epfd == -1) {
         zfree(state->events);
@@ -142,14 +142,14 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
 
-    //获取监听到的事件
+    //调用epoll_wait获取监听到的事件
     retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
             tvp ? (tvp->tv_sec*1000 + tvp->tv_usec/1000) : -1);
     if (retval > 0) {
         int j;
         //获得监听到的事件数量
         numevents = retval;
-        ////针对每一个事件，进行处理
+        //针对每一个事件，进行处理
         for (j = 0; j < numevents; j++) {
             int mask = 0;
             struct epoll_event *e = state->events+j;

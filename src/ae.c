@@ -64,9 +64,9 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     aeEventLoop *eventLoop;
     int i;
 
-    ////给eventLoop变量分配内存空间
+    //给eventLoop变量分配内存空间
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
-    ////给IO事件、已触发事件分配内存空间
+    //给IO事件、已触发事件分配内存空间
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
@@ -78,11 +78,11 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->maxfd = -1;
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
-    ////调用aeApiCreate函数，去实际调用操作系统提供的IO多路复用函数
+    //调用aeApiCreate函数，去实际调用操作系统提供的IO多路复用函数
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
-    ////将所有网络IO事件对应文件描述符的掩码设置为AE_NONE
+    //将所有网络IO事件对应文件描述符的掩码设置为AE_NONE
     for (i = 0; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
     return eventLoop;
@@ -290,7 +290,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
      * processing events earlier is less dangerous than delaying them
      * indefinitely, and practice suggests it is. */
     if (now < eventLoop->lastTime) {
-        te = eventLoop->timeEventHead;
+        te = eventLoop->timeEventHead;//从时间列表中取出事件
         while(te) {
             te->when_sec = 0;
             te = te->next;
@@ -365,6 +365,10 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * the events that's possible to process without to wait are processed.
  *
  * The function returns the number of events processed. */
+//
+//情况一：既没有时间事件，也没有网络事件；
+//情况二：有 IO 事件或者有需要紧急处理的时间事件；
+//情况三：只有普通的时间事件。
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
@@ -420,6 +424,8 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires. */
+   
+        //printf("tvp: %s %s\r\n",tvp->tv_sec,tvp->tv_usec);
         numevents = aeApiPoll(eventLoop, tvp);//调用aeApiPoll获取就绪的描述符
 
         /* After sleep callback. */

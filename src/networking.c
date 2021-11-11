@@ -83,7 +83,7 @@ void linkClient(client *c) {
     raxInsert(server.clients_index,(unsigned char*)&id,sizeof(id),c,NULL);
 }
 
-//创建客户端
+//创建客户端 添加客户端fd监听的读写文件事件
 client *createClient(int fd) {
     client *c = zmalloc(sizeof(client));
 
@@ -1095,7 +1095,8 @@ int handleClientsWithPendingWrites(void) {
 
     //获取待写回的客户端列表
     listRewind(server.clients_pending_write,&li);
-    while((ln = listNext(&li))) {
+
+    while((ln = listNext(&li))) {//遍历每一个待写回的客户端
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
         listDelNode(server.clients_pending_write,ln);
@@ -1105,7 +1106,7 @@ int handleClientsWithPendingWrites(void) {
         if (c->flags & CLIENT_PROTECTED) continue;
 
         /* Try to write buffers to the client socket. */
-        ////调用writeToClient将当前客户端的输出缓冲区数据写回
+        //调用writeToClient将当前客户端的输出缓冲区数据写回
         if (writeToClient(c->fd,c,0) == C_ERR) continue;
 
         /* If after the synchronous writes above we still have data to
@@ -1543,6 +1544,7 @@ void readQueryFromClient(aeEventLoop *el, int fd, void *privdata, int mask) {
      * at the risk of requiring more read(2) calls. This way the function
      * processMultiBulkBuffer() can avoid copying buffers to create the
      * Redis Object representing the argument. */
+    //批量请求
     if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {

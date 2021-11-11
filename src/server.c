@@ -2166,6 +2166,7 @@ void resetServerStats(void) {
 void initServer(void) {
     int j;
 
+    //信号相关
     signal(SIGHUP, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     setupSignalHandlers();
@@ -2179,22 +2180,22 @@ void initServer(void) {
     server.pid = getpid();
     server.current_client = NULL;
     server.fixed_time_expire = 0;
-    server.clients = listCreate();//初始化客户端链表
+    server.clients = listCreate();//创建客户队列
     server.clients_index = raxNew();
-    server.clients_to_close = listCreate();
-    server.slaves = listCreate();
-    server.monitors = listCreate();
+    server.clients_to_close = listCreate();//创建关闭客户队列
+    server.slaves = listCreate();//创建从机队列
+    server.monitors = listCreate();//创建监控队列
     server.clients_pending_write = listCreate();
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */
-    server.unblocked_clients = listCreate();
-    server.ready_keys = listCreate();
+    server.unblocked_clients = listCreate();//创建非阻塞客户队列
+    server.ready_keys = listCreate();//创建可读key队列
     server.clients_waiting_acks = listCreate();
     server.get_ack_from_slaves = 0;
     server.clients_paused = 0;
     server.system_memory_size = zmalloc_get_memory_size();
 
     createSharedObjects();//创建共享对象
-    adjustOpenFilesLimit();
+    adjustOpenFilesLimit();//改变可打开文件的最大数量
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);//创建事件驱动框架
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -2202,9 +2203,10 @@ void initServer(void) {
             strerror(errno));
         exit(1);
     }
-    server.db = zmalloc(sizeof(redisDb)*server.dbnum);//创建数据库字典
+    server.db = zmalloc(sizeof(redisDb)*server.dbnum);//分配DB内存
 
     /* Open the TCP listening socket for the user commands. */
+    //开始监听设置的网络端口
     if (server.port != 0 &&
         listenToPort(server.port,server.ipfd,&server.ipfd_count) == C_ERR)
         exit(1);
@@ -2231,16 +2233,16 @@ void initServer(void) {
     /* Create the Redis databases, and initialize other internal state. */
     //redisDB 数据库执行初始化操作，包括创建全局哈希表，为过期 key、被 BLPOP 阻塞的 key、将被 PUSH 的 key 和被监听的 key 创建相应的信息表。
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].dict = dictCreate(&dbDictType,NULL);
-        server.db[j].expires = dictCreate(&keyptrDictType,NULL);
-        server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
-        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
-        server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
-        server.db[j].id = j;
-        server.db[j].avg_ttl = 0;
+        server.db[j].dict = dictCreate(&dbDictType,NULL);//全局哈希表
+        server.db[j].expires = dictCreate(&keyptrDictType,NULL);//过期key哈希表
+        server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);//为被BLPOP阻塞的key创建信息表 
+        server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);//为将执行PUSH的阻塞key创建信息表
+        server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);//执行了事物监听的key
+        server.db[j].id = j;//数据库ID
+        server.db[j].avg_ttl = 0;//平均生存时间，用于统计
         server.db[j].defrag_later = listCreate();
     }
-    evictionPoolAlloc(); /* Initialize the LRU keys pool. */
+    evictionPoolAlloc(); /* Initialize the LRU keys pool. *///采样生成用于淘汰的候选key集合
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
     listSetFreeMethod(server.pubsub_patterns,freePubsubPattern);
@@ -2260,7 +2262,7 @@ void initServer(void) {
     server.rdb_save_time_last = -1;
     server.rdb_save_time_start = -1;
     server.dirty = 0;
-    resetServerStats();
+    resetServerStats();//重置server运行状态信息
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
@@ -2279,7 +2281,7 @@ void initServer(void) {
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth. */
-    //创建时间事件
+    //为server后台任务创建定时事件
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);
@@ -2287,6 +2289,7 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
+    //为每一个监听的IP设置连接事件的处理函数acceptTcpHandler
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
@@ -4358,7 +4361,7 @@ int redisIsSupervised(int mode) {
 int main(int argc, char **argv) {
     struct timeval tv;
     int j;
-
+//如果定义了 REDIS_TEST 宏定义，并且 Redis server 启动时的参数符合测试参数，那么 main 函数就会执行相应的测试程序。
 #ifdef REDIS_TEST
 ///如果启动参数有test和ziplist，那么就调用ziplistTest函数进行ziplist的测试
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
@@ -4401,7 +4404,13 @@ int main(int argc, char **argv) {
     getRandomHexChars(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed((uint8_t*)hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
-    initServerConfig();//初始化默认配置
+    //redis配置文件过程：
+    //1.调用initServerConfig为各种参数设置默认值
+    //2.main函数解析命令行参数
+    //3.调用loadServerConfig进行第二，第三轮赋值
+    //4.loadServerFromString对配置项字符串中的每一个配置项进行匹配
+    //5.完成参数配置后调用 initServer函数，对server进行初始化
+    initServerConfig();//初始化默认配置为各种参数设置默认值
     moduleInitModulesSystem();//模块框架初始化
 
     /* Store the executable path and arguments in a safe place in order
@@ -4519,7 +4528,7 @@ int main(int argc, char **argv) {
     int background = server.daemonize && !server.supervised;//supervised 表示，是否使用 upstart 或是 systemd 这两种守护进程的管理程序来管理 Redis
     if (background) daemonize();
 
-    //资源管理所需的数据结构初始化、键值对数据库初始化、server 网络框架初始化
+    //Server初始化，数据结构初始化、键值对数据库初始化、server 网络框架初始化
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
