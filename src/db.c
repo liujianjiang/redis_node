@@ -489,6 +489,7 @@ void delCommand(client *c) {
     delGenericCommand(c,0);
 }
 
+//使用异步删除时的流程：unlinkCommand -> delGenericCommand -> dbAsyncDelete -> dictUnlink -> bioCreateBackgroundJob 创建异步删除任务 -> 后台异步删除。
 void unlinkCommand(client *c) {
     delGenericCommand(c,1);
 }

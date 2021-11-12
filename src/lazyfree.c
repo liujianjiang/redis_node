@@ -77,6 +77,8 @@ size_t lazyfreeGetFreeEffort(robj *obj) {
  * will be reclaimed in a different bio.c thread. */
 #define LAZYFREE_THRESHOLD 64
 //哈希表中删除key
+//使用异步删除时的流程：unlinkCommand -> delGenericCommand -> dbAsyncDelete -> dictUnlink -> bioCreateBackgroundJob 
+//创建异步删除任务 -> 后台异步删除。不使用异步删除时的流程：unlinkCommand -> delGenericCommand -> dbAsyncDelete -> dictUnlink -> dictFreeUnlinkedEntry 直接释放内存。
 int dbAsyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
@@ -88,7 +90,8 @@ int dbAsyncDelete(redisDb *db, robj *key) {
     dictEntry *de = dictUnlink(db->dict,key->ptr);//在全局哈希表中异步删除被淘汰的键值对
     if (de) {
         robj *val = dictGetVal(de);
-        size_t free_effort = lazyfreeGetFreeEffort(val);//计算释放被淘汰键值对内存空间的开销
+        size_t free_effort = lazyfreeGetFreeEffort(val);//计算释放被淘汰键值对内存空间的开销 如果开销比较大就会创建后台任务在后台线程是否，否则直接释放
+
 
         /* If releasing the object is too much work, do it in the background
          * by adding the object to the lazy free list.

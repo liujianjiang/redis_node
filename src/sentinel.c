@@ -4453,10 +4453,10 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
     /* There are a number of things we need to perform against every master. */
     di = dictGetIterator(instances);
     while((de = dictNext(di)) != NULL) {
-        sentinelRedisInstance *ri = dictGetVal(de);
+        sentinelRedisInstance *ri = dictGetVal(de);//获取哨兵实例监听的每个主节点
 
-        sentinelHandleRedisInstance(ri);
-        if (ri->flags & SRI_MASTER) {
+        sentinelHandleRedisInstance(ri);//调用sentinelHandleRedisInstance
+        if (ri->flags & SRI_MASTER) {//如果当前节点是主节点，那么调用sentinelHandleDictOfRedisInstances对它的所有从节点进行处理。 sentinelHandleDictOfRedisInstances(ri->slaves); …}…}…}
             sentinelHandleDictOfRedisInstances(ri->slaves);
             sentinelHandleDictOfRedisInstances(ri->sentinels);
             if (ri->failover_state == SENTINEL_FAILOVER_STATE_UPDATE_CONFIG) {

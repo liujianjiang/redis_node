@@ -1377,7 +1377,7 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
 
     server.dirty_before_bgsave = server.dirty;
     server.lastbgsave_try = time(NULL);
-    openChildInfoPipe();
+    openChildInfoPipe();//创建进程通信管道
 
     start = ustime();
     if ((childpid = fork()) == 0) {
@@ -1396,8 +1396,8 @@ int rdbSaveBackground(char *filename, rdbSaveInfo *rsi) {
                     private_dirty/(1024*1024));
             }
 
-            server.child_info_data.cow_size = private_dirty;
-            sendChildInfo(CHILD_INFO_TYPE_RDB);
+            server.child_info_data.cow_size = private_dirty;//记录实际的写时复制数据量
+            sendChildInfo(CHILD_INFO_TYPE_RDB);//将写时复制数据量发送给父进程
         }
         exitFromChild((retval == C_OK) ? 0 : 1);
     } else {
@@ -2410,8 +2410,8 @@ int rdbSaveToSlavesSockets(rdbSaveInfo *rsi) {
                     private_dirty/(1024*1024));
             }
 
-            server.child_info_data.cow_size = private_dirty;
-            sendChildInfo(CHILD_INFO_TYPE_RDB);
+            server.child_info_data.cow_size = private_dirty;//记录实际的写时复制数据量
+            sendChildInfo(CHILD_INFO_TYPE_RDB);//将写时复制数据量发送给父进程
 
             /* If we are returning OK, at least one slave was served
              * with the RDB file as expected, so we need to send a report
@@ -2542,6 +2542,7 @@ void bgsaveCommand(client *c) {
                 "Use BGSAVE SCHEDULE in order to schedule a BGSAVE whenever "
                 "possible.");
         }
+    //在客户端执行了BGSAVE命令时，设置rdb_bgsave_scheduled=1，检查子进程是否在运行，如果没有子进程的话，调用rdbSaveBackground函数生成RDB
     } else if (rdbSaveBackground(server.rdb_filename,rsiptr) == C_OK) {
         addReplyStatus(c,"Background saving started");
     } else {

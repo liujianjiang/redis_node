@@ -1592,7 +1592,7 @@ int rewriteAppendOnlyFileBackground(void) {
 
     if (server.aof_child_pid != -1 || server.rdb_child_pid != -1) return C_ERR;
     if (aofCreatePipes() != C_OK) return C_ERR;
-    openChildInfoPipe();
+    openChildInfoPipe();//创建管道
     start = ustime();
     //fork子进程，子进程中重写aof
     if ((childpid = fork()) == 0) {//创建子进程
@@ -1612,8 +1612,8 @@ int rewriteAppendOnlyFileBackground(void) {
                     private_dirty/(1024*1024));
             }
 
-            server.child_info_data.cow_size = private_dirty;
-            sendChildInfo(CHILD_INFO_TYPE_AOF);
+            server.child_info_data.cow_size = private_dirty;//记录实际写时复制的数据量
+            sendChildInfo(CHILD_INFO_TYPE_AOF);//将写时复制的数据量发送给父进程
             exitFromChild(0);
         } else {
             exitFromChild(1);
