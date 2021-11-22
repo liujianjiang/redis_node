@@ -190,6 +190,7 @@
 #include "endianconv.h"
 #include "redisassert.h"
 
+//ziplist的列表尾字节内容
 #define ZIP_END 255         /* Special "end of ziplist" entry. */
 #define ZIP_BIG_PREVLEN 254 /* Max number of bytes of the previous entry, for
                                the "prevlen" field prefixing each entry, to be
@@ -239,9 +240,11 @@
 /* The size of a ziplist header: two 32 bit integers for the total
  * bytes count and last item offset. One 16 bit integer for the number
  * of items field. */
+//ziplist的列表头大小，包括2个32 bits整数和1个16bits整数，分别表示压缩列表的总字节数，列表最后一个元素的离列表头的偏移，以及列表中的元素个数#define ZIPLIST_HEADER_SIZE (sizeof(uint32_t)*2+sizeof(uint16_t))//ziplist的列表尾大小，包括1个8 bits整数，表示列表结束。#define ZIPLIST_END_SIZE (sizeof(uint8_t))//ziplist的列表尾字节内容#define ZIP_END 255
 #define ZIPLIST_HEADER_SIZE     (sizeof(uint32_t)*2+sizeof(uint16_t))
 
 /* Size of the "end of ziplist" entry. Just one byte. */
+//ziplist的列表尾大小，包括1个8 bits整数，表示列表结束。
 #define ZIPLIST_END_SIZE        (sizeof(uint8_t))
 
 /* Return the pointer to the first entry of a ziplist. */

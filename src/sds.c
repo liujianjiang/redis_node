@@ -127,7 +127,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
     unsigned char *fp; /* flags pointer. */
 
     assert(hdrlen+initlen+1 > initlen); /* Catch size_t overflow */
-    sh = s_malloc(hdrlen+initlen+1);//新建SDS结构，并分配内存空间
+    sh = s_malloc(hdrlen+initlen+1);//新建SDS结构，并分配内存空间=sds头信息长度+字符串长度+1个长度的结束符
     if (init==SDS_NOINIT)
         init = NULL;
     else if (!init)
@@ -135,6 +135,7 @@ sds sdsnewlen(const void *init, size_t initlen) {
     if (sh == NULL) return NULL;
     s = (char*)sh+hdrlen;//s是指向buf的指针
     fp = ((unsigned char*)s)-1;//s是柔性数组buf的指针，-1指向flags
+    //根据type选择不同的sds字符串类型
     switch(type) {
         case SDS_TYPE_5: {
             *fp = type | (initlen << SDS_TYPE_BITS);
@@ -438,13 +439,17 @@ sds sdsgrowzero(sds s, size_t len) {
 //t 源字符串
 //追加的字符串长度
 sds sdscatlen(sds s, const void *t, size_t len) {
+    //获取目标字符串s的当前长度
     size_t curlen = sdslen(s);
-
+    //根据要追加的长度len和目标字符串s的现有长度，判断是否要增加新的空间
     s = sdsMakeRoomFor(s,len);//s容量做检查，若无须扩容则直接返回s
     if (s == NULL) return NULL;
+    //将源字符串t中len长度的数据拷贝到目标字符串结尾
     memcpy(s+curlen, t, len);
+    //设置目标字符串的最新长度：拷贝前长度curlen加上拷贝长度
     sdssetlen(s, curlen+len);
-    s[curlen+len] = '\0';//加上结束符
+    //拷贝后，在目标字符串结尾加上\0
+    s[curlen+len] = '\0';
     return s;
 }
 

@@ -76,7 +76,7 @@ typedef struct dictht {
 typedef struct dict {
     dictType *type;//该字典对应的特定的操作函数
     void *privdata;//该字典依赖的数据，配合type指向的函数一起使用
-    dictht ht[2];//hash表，键值对存储 //ht字段，是个大小为2的数组，该数组存储的元素类型为dictht，虽然有两个元素，但一般情况下只会使用ht[0]，只有当该字典扩容、缩容需要进行rehash时，才会用到ht[1]
+    dictht ht[2];//hash表，键值对存储，ht字段，是个大小为2的数组，该数组存储的元素类型为dictht，虽然有两个元素，但一般情况下只会使用ht[0]，只有当该字典扩容、缩容需要进行rehash时，才会用到ht[1]
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */ //rehashidx字段，用来标记该字典是否在进行rehash，没进行rehash时，值为-1，否则，该值用来表示Hash表ht[0] 执行rehash到了哪个元素，并记录该元素的数组下标值。
     unsigned long iterators; /* number of iterators currently running */ //当前运行的迭代器
 } dict;

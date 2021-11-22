@@ -614,14 +614,14 @@ typedef struct RedisModuleDigest {
 
 #define OBJ_SHARED_REFCOUNT INT_MAX
 typedef struct redisObject {
-    unsigned type:4;//type表示Redis对象的类型，占用4位，目前包含如下类型。
-    unsigned encoding:4;//encoding表示对象内部存储的编码，在一定条件下，对象的编码可以在多个编码之间转化，长度占用4位
+    unsigned type:4;//redisObject 的数据类型，是应用程序在 Redis 中保存的数据类型，包括 String、List、Hash 等。
+    unsigned encoding:4;//redisObject 的编码类型，是 Redis 内部实现各种数据类型所用的数据结构。
     //encoding表示对象内部存储的编码，在一定条件下，对象的编码可以在多个编码之间转化，长度占用4位
-    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
+    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or //redisObject 的 LRU 时间。
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    int refcount;//encoding表示对象内部存储的编码，在一定条件下，对象的编码可以在多个编码之间转化，长度占用4位
-    void *ptr;//encoding表示对象内部存储的编码，在一定条件下，对象的编码可以在多个编码之间转化，长度占用4位
+    int refcount;//redisObject 的引用计数。
+    void *ptr;//指向值的指针。
 } robj;
 
 /* Macro used to initialize a Redis object allocated on the stack.
